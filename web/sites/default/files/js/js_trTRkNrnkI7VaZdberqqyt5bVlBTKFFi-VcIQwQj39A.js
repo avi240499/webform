@@ -1,0 +1,1937 @@
+/**
+ * @file
+ * Attaches behaviors for the Clientside Validation jQuery module.
+ */
+(function ($, Drupal, once, drupalSettings) {
+  'use strict';
+
+  if (typeof drupalSettings.cvJqueryValidateOptions === 'undefined') {
+    drupalSettings.cvJqueryValidateOptions = {};
+  }
+
+  if (drupalSettings.clientside_validation_jquery.force_validate_on_blur) {
+    drupalSettings.cvJqueryValidateOptions.onfocusout = function (element) {
+      // "eager" validation
+      this.element(element);
+    };
+  }
+
+  // Add messages with translations from backend.
+  $.extend($.validator.messages, drupalSettings.clientside_validation_jquery.messages);
+
+  // Overwrite default URL validation method, accepting public/private urlscheme.
+  var _urlValidation = $.validator.methods.url;
+  $.validator.methods.url = function(value, element) {
+    return _urlValidation.call(this, value, element) || /^(public|private):\/\//.test(value);
+  }
+
+  /**
+   * Attaches jQuery validate behavior to forms.
+   *
+   * @type {Drupal~behavior}
+   *
+   * @prop {Drupal~behaviorAttach} attach
+   *  Attaches the outline behavior to the right context.
+   */
+  Drupal.behaviors.cvJqueryValidate = {
+    attach: function (context) {
+      if (typeof Drupal.Ajax !== 'undefined') {
+        // Update Drupal.Ajax.prototype.beforeSend only once.
+        if (typeof Drupal.Ajax.prototype.beforeSubmitCVOriginal === 'undefined') {
+          var validateAll = 2;
+          try {
+            validateAll = drupalSettings.clientside_validation_jquery.validate_all_ajax_forms;
+          }
+          catch(e) {
+            // Do nothing if we do not have settings or value in settings.
+          }
+
+          Drupal.Ajax.prototype.beforeSubmitCVOriginal = Drupal.Ajax.prototype.beforeSubmit;
+          Drupal.Ajax.prototype.beforeSubmit = function (form_values, element_settings, options) {
+            if (typeof this.$form !== 'undefined' && (validateAll === 1 || $(this.element).hasClass('cv-validate-before-ajax')) && $(this.element).attr("formnovalidate") == undefined) {
+              $(this.$form).removeClass('ajax-submit-prevented');
+
+              $(this.$form).validate();
+              if (!($(this.$form).valid())) {
+                this.ajaxing = false;
+                $(this.$form).addClass('ajax-submit-prevented');
+                return false;
+              }
+            }
+
+            return this.beforeSubmitCVOriginal.apply(this, arguments);
+          };
+        }
+      }
+
+      // Allow all modules to update the validate options.
+      // Example of how to do this is shown below.
+      $(document).trigger('cv-jquery-validate-options-update', drupalSettings.cvJqueryValidateOptions);
+
+      // Process for all the forms on the page everytime,
+      // we already use once so we should be good.
+      once('cvJqueryValidate', 'body form').forEach(function(element) {
+        $(element).validate(drupalSettings.cvJqueryValidateOptions);
+      });
+    }
+  };
+})(jQuery, Drupal, once, drupalSettings);
+;
+/**
+ * @file
+ * Attaches behaviors for the Clientside Validation jQuery module.
+ */
+(function ($, once) {
+  // Override clientside validation jquery validation options.
+  // We do this to display the error markup same as in inline_form_errors.
+  // Using once can not use `window` or `document` directly.
+  if (!once('cvjquery', 'html').length) {
+    // Early return avoid changing the indentation
+    // for the rest of the code.
+    return;
+  }
+
+  $(document).on('cv-jquery-validate-options-update', function (event, options) {
+    options.errorElement = 'strong';
+    options.showErrors = function(errorMap, errorList) {
+      // First remove all errors.
+      for (var i in errorList) {
+        $(errorList[i].element).parent().find('.form-item--error-message').remove();
+      }
+
+      // Show errors using defaultShowErrors().
+      this.defaultShowErrors();
+
+      // Wrap all errors with div.form-item--error-message.
+      $(this.currentForm).find('strong.error').each(function () {
+        if (!$(this).parent().hasClass('form-item--error-message')) {
+          $(this).wrap('<div class="form-item--error-message" role="alert"/>');
+        }
+      });
+    };
+  });
+})(jQuery, once);
+;
+/**
+ * @file
+ * Attaches behaviors for the zipang captcha refresh module.
+ */
+
+(function ($) {
+  "use strict";
+
+  /**
+   * Attaches jQuery validate behavior to forms.
+   *
+   * @type {Drupal~behavior}
+   *
+   * @prop {Drupal~behaviorAttach} attach
+   *  Attaches the outline behavior to the right context.
+   */
+  Drupal.behaviors.CaptchaRefresh = {
+    attach: function (context) {
+      $('.reload-captcha', context).not('.processed').bind('click', function () {
+        $(this).addClass('processed');
+        const $form = $(this).parents('form');
+        // Send post query for getting new captcha data.
+        const date = new Date();
+        const baseUrl = document.location.origin;
+        const url = baseUrl.replace(/\/$/g, '') + '/' + $(this).attr('href').replace(/^\//g, '') + '?' + date.getTime();
+        // Adding loader.
+        $('.captcha').addClass('captcha--loading');
+        $.get(
+          url,
+          {},
+          function (response) {
+            if (response.status === 1) {
+              $('.captcha', $form).find('img').attr('src', response.data.url);
+              $('input[name=captcha_sid]', $form).val(response.data.sid);
+              $('input[name=captcha_token]', $form).val(response.data.token);
+              $('.captcha').removeClass('captcha--loading');
+            }
+            else {
+              alert(response.message);
+            }
+          },
+          'json'
+        );
+        return false;
+      });
+    }
+  };
+})(jQuery);
+;
+/**
+ * @file
+ * JavaScript behaviors for select menu.
+ */
+
+(function ($, Drupal, once) {
+
+  'use strict';
+
+  /**
+   * Disable select menu options using JavaScript.
+   *
+   * @type {Drupal~behavior}
+   */
+  Drupal.behaviors.webformSelectOptionsDisabled = {
+    attach: function (context) {
+      $(once('webform-select-options-disabled', 'select[data-webform-select-options-disabled]', context)).each(function () {
+        var $select = $(this);
+        var disabled = $select.attr('data-webform-select-options-disabled').split(/\s*,\s*/);
+        $select.find('option').filter(function isDisabled() {
+          return ($.inArray(this.value, disabled) !== -1);
+        }).attr('disabled', 'disabled');
+      });
+    }
+  };
+
+})(jQuery, Drupal, once);
+;
+/**
+ * @file
+ * JavaScript behaviors for other elements.
+ */
+
+(function ($, Drupal, once) {
+
+  'use strict';
+
+  /**
+   * Toggle other input (text) field.
+   *
+   * @param {boolean} show
+   *   TRUE will display the text field. FALSE with hide and clear the text field.
+   * @param {object} $element
+   *   The input (text) field to be toggled.
+   * @param {string} effect
+   *   Effect.
+   */
+  function toggleOther(show, $element, effect) {
+    var $input = $element.find('input');
+    var hideEffect = (effect === false) ? 'hide' : 'slideUp';
+    var showEffect = (effect === false) ? 'show' : 'slideDown';
+
+    if (show) {
+      // Limit the other inputs width to the parent's container.
+      // If the parent container is not visible it's width will be 0
+      // and ignored.
+      var width = $element.parent().width();
+      if (width) {
+        $element.width(width);
+      }
+
+      // Display the element.
+      $element[showEffect]();
+      // If not initializing, then focus the other element.
+      if (effect !== false) {
+        $input.trigger('focus');
+      }
+      // Require the input.
+      $input.prop('required', true).attr('aria-required', 'true');
+      // Restore the input's value.
+      var value = $input.data('webform-value');
+      if (typeof value !== 'undefined') {
+        $input.val(value);
+        var input = $input.get(0);
+        // Move cursor to the beginning of the other text input.
+        // @see https://stackoverflow.com/questions/21177489/selectionstart-selectionend-on-input-type-number-no-longer-allowed-in-chrome
+        if ($.inArray(input.type, ['text', 'search', 'url', 'tel', 'password']) !== -1) {
+          input.setSelectionRange(0, 0);
+        }
+      }
+      // Refresh CodeMirror used as other element.
+      $element.parent().find('.CodeMirror').each(function (index, $element) {
+        $element.CodeMirror.refresh();
+      });
+    }
+    else {
+      // Hide the element.
+      $element[hideEffect]();
+      // Save the input's value.
+      if ($input.val() !== '') {
+        $input.data('webform-value', $input.val());
+      }
+      // Empty and un-required the input.
+      $input.val('').prop('required', false).removeAttr('aria-required');
+    }
+  }
+
+  /**
+   * Attach handlers to select other elements.
+   *
+   * @type {Drupal~behavior}
+   */
+  Drupal.behaviors.webformSelectOther = {
+    attach: function (context) {
+      $(once('webform-select-other', '.js-webform-select-other', context)).each(function () {
+        var $element = $(this);
+
+        var $select = $element.find('select');
+        var $input = $element.find('.js-webform-select-other-input');
+
+        $select.on('change', function () {
+          var isOtherSelected = $select
+            .find('option[value="_other_"]')
+            .is(':selected');
+          toggleOther(isOtherSelected, $input);
+        });
+
+        var isOtherSelected = $select
+          .find('option[value="_other_"]')
+          .is(':selected');
+        toggleOther(isOtherSelected, $input, false);
+      });
+    }
+  };
+
+  /**
+   * Attach handlers to checkboxes other elements.
+   *
+   * @type {Drupal~behavior}
+   */
+  Drupal.behaviors.webformCheckboxesOther = {
+    attach: function (context) {
+      $(once('webform-checkboxes-other', '.js-webform-checkboxes-other', context)).each(function () {
+        var $element = $(this);
+        var $checkbox = $element.find('input[value="_other_"]');
+        var $input = $element.find('.js-webform-checkboxes-other-input');
+
+        $checkbox.on('change', function () {
+          toggleOther(this.checked, $input);
+        });
+
+        toggleOther($checkbox.is(':checked'), $input, false);
+      });
+    }
+  };
+
+  /**
+   * Attach handlers to radios other elements.
+   *
+   * @type {Drupal~behavior}
+   */
+  Drupal.behaviors.webformRadiosOther = {
+    attach: function (context) {
+      $(once('webform-radios-other', '.js-webform-radios-other', context)).each(function () {
+        var $element = $(this);
+
+        var $radios = $element.find('input[type="radio"]');
+        var $input = $element.find('.js-webform-radios-other-input');
+
+        $radios.on('change', function () {
+          toggleOther(($radios.filter(':checked').val() === '_other_'), $input);
+        });
+
+        toggleOther(($radios.filter(':checked').val() === '_other_'), $input, false);
+      });
+    }
+  };
+
+  /**
+   * Attach handlers to buttons other elements.
+   *
+   * @type {Drupal~behavior}
+   */
+  Drupal.behaviors.webformButtonsOther = {
+    attach: function (context) {
+      $(once('webform-buttons-other', '.js-webform-buttons-other', context)).each(function () {
+        var $element = $(this);
+
+        var $buttons = $element.find('input[type="radio"]');
+        var $input = $element.find('.js-webform-buttons-other-input');
+        var $container = $(this).find('.js-webform-webform-buttons');
+
+        // Create set onchange handler.
+        $container.on('change', function () {
+          toggleOther(($(this).find(':radio:checked').val() === '_other_'), $input);
+        });
+
+        toggleOther(($buttons.filter(':checked').val() === '_other_'), $input, false);
+      });
+    }
+  };
+
+})(jQuery, Drupal, once);
+;
+/**
+ * @file
+ * Customization of navigation.
+ */
+
+((Drupal, once, tabbable) => {
+  /**
+   * Checks if navWrapper contains "is-active" class.
+   *
+   * @param {Element} navWrapper
+   *   Header navigation.
+   *
+   * @return {boolean}
+   *   True if navWrapper contains "is-active" class, false if not.
+   */
+  function isNavOpen(navWrapper) {
+    return navWrapper.classList.contains('is-active');
+  }
+
+  /**
+   * Opens or closes the header navigation.
+   *
+   * @param {object} props
+   *   Navigation props.
+   * @param {boolean} state
+   *   State which to transition the header navigation menu into.
+   */
+  function toggleNav(props, state) {
+    const value = !!state;
+    props.navButton.setAttribute('aria-expanded', value);
+
+    if (value) {
+      props.body.classList.add('is-overlay-active');
+      props.body.classList.add('is-fixed');
+      props.navWrapper.classList.add('is-active');
+    } else {
+      props.body.classList.remove('is-overlay-active');
+      props.body.classList.remove('is-fixed');
+      props.navWrapper.classList.remove('is-active');
+    }
+  }
+
+  /**
+   * Initialize the header navigation.
+   *
+   * @param {object} props
+   *   Navigation props.
+   */
+  function init(props) {
+    props.navButton.setAttribute('aria-controls', props.navWrapperId);
+    props.navButton.setAttribute('aria-expanded', 'false');
+
+    props.navButton.addEventListener('click', () => {
+      toggleNav(props, !isNavOpen(props.navWrapper));
+    });
+
+    // Close any open sub-navigation first, then close the header navigation.
+    document.addEventListener('keyup', (e) => {
+      if (e.key === 'Escape') {
+        if (props.olivero.areAnySubNavsOpen()) {
+          props.olivero.closeAllSubNav();
+        } else {
+          toggleNav(props, false);
+        }
+      }
+    });
+
+    props.overlay.addEventListener('click', () => {
+      toggleNav(props, false);
+    });
+
+    props.overlay.addEventListener('touchstart', () => {
+      toggleNav(props, false);
+    });
+
+    // Focus trap. This is added to the header element because the navButton
+    // element is not a child element of the navWrapper element, and the keydown
+    // event would not fire if focus is on the navButton element.
+    props.header.addEventListener('keydown', (e) => {
+      if (e.key === 'Tab' && isNavOpen(props.navWrapper)) {
+        const tabbableNavElements = tabbable.tabbable(props.navWrapper);
+        tabbableNavElements.unshift(props.navButton);
+        const firstTabbableEl = tabbableNavElements[0];
+        const lastTabbableEl =
+          tabbableNavElements[tabbableNavElements.length - 1];
+
+        if (e.shiftKey) {
+          if (
+            document.activeElement === firstTabbableEl &&
+            !props.olivero.isDesktopNav()
+          ) {
+            lastTabbableEl.focus();
+            e.preventDefault();
+          }
+        } else if (
+          document.activeElement === lastTabbableEl &&
+          !props.olivero.isDesktopNav()
+        ) {
+          firstTabbableEl.focus();
+          e.preventDefault();
+        }
+      }
+    });
+
+    // Remove overlays when browser is resized and desktop nav appears.
+    window.addEventListener('resize', () => {
+      if (props.olivero.isDesktopNav()) {
+        toggleNav(props, false);
+        props.body.classList.remove('is-overlay-active');
+        props.body.classList.remove('is-fixed');
+      }
+
+      // Ensure that all sub-navigation menus close when the browser is resized.
+      Drupal.olivero.closeAllSubNav();
+    });
+
+    // If hyperlink links to an anchor in the current page, close the
+    // mobile menu after the click.
+    props.navWrapper.addEventListener('click', (e) => {
+      if (
+        e.target.matches(
+          `[href*="${window.location.pathname}#"], [href*="${window.location.pathname}#"] *, [href^="#"], [href^="#"] *`,
+        )
+      ) {
+        toggleNav(props, false);
+      }
+    });
+  }
+
+  /**
+   * Initialize the navigation.
+   *
+   * @type {Drupal~behavior}
+   *
+   * @prop {Drupal~behaviorAttach} attach
+   *   Attach context and settings for navigation.
+   */
+  Drupal.behaviors.oliveroNavigation = {
+    attach(context) {
+      const headerId = 'header';
+      const header = once('navigation', `#${headerId}`, context).shift();
+      const navWrapperId = 'header-nav';
+
+      if (header) {
+        const navWrapper = header.querySelector(`#${navWrapperId}`);
+        const { olivero } = Drupal;
+        const navButton = context.querySelector(
+          '[data-drupal-selector="mobile-nav-button"]',
+        );
+        const body = document.body;
+        const overlay = context.querySelector(
+          '[data-drupal-selector="header-nav-overlay"]',
+        );
+
+        init({
+          olivero,
+          header,
+          navWrapperId,
+          navWrapper,
+          navButton,
+          body,
+          overlay,
+        });
+      }
+    },
+  };
+})(Drupal, once, tabbable);
+;
+/**
+ * @file
+ * Provides functionality for second level submenu navigation.
+ */
+
+((Drupal) => {
+  const { isDesktopNav } = Drupal.olivero;
+  const secondLevelNavMenus = document.querySelectorAll(
+    '[data-drupal-selector="primary-nav-menu-item-has-children"]',
+  );
+
+  /**
+   * Shows and hides the specified menu item's second level submenu.
+   *
+   * @param {Element} topLevelMenuItem
+   *   The <li> element that is the container for the menu and submenus.
+   * @param {boolean} [toState]
+   *   Optional state where we want the submenu to end up.
+   */
+  function toggleSubNav(topLevelMenuItem, toState) {
+    const buttonSelector =
+      '[data-drupal-selector="primary-nav-submenu-toggle-button"]';
+    const button = topLevelMenuItem.querySelector(buttonSelector);
+    const state =
+      toState !== undefined
+        ? toState
+        : button.getAttribute('aria-expanded') !== 'true';
+
+    if (state) {
+      // If desktop nav, ensure all menus close before expanding new one.
+      if (isDesktopNav()) {
+        secondLevelNavMenus.forEach((el) => {
+          el.querySelector(buttonSelector).setAttribute(
+            'aria-expanded',
+            'false',
+          );
+          el.querySelector(
+            '[data-drupal-selector="primary-nav-menu--level-2"]',
+          ).classList.remove('is-active-menu-parent');
+          el.querySelector(
+            '[data-drupal-selector="primary-nav-menu-🥕"]',
+          ).classList.remove('is-active-menu-parent');
+        });
+      }
+      button.setAttribute('aria-expanded', 'true');
+      topLevelMenuItem
+        .querySelector('[data-drupal-selector="primary-nav-menu--level-2"]')
+        .classList.add('is-active-menu-parent');
+      topLevelMenuItem
+        .querySelector('[data-drupal-selector="primary-nav-menu-🥕"]')
+        .classList.add('is-active-menu-parent');
+    } else {
+      button.setAttribute('aria-expanded', 'false');
+      topLevelMenuItem.classList.remove('is-touch-event');
+      topLevelMenuItem
+        .querySelector('[data-drupal-selector="primary-nav-menu--level-2"]')
+        .classList.remove('is-active-menu-parent');
+      topLevelMenuItem
+        .querySelector('[data-drupal-selector="primary-nav-menu-🥕"]')
+        .classList.remove('is-active-menu-parent');
+    }
+  }
+
+  Drupal.olivero.toggleSubNav = toggleSubNav;
+
+  /**
+   * Sets a timeout and closes current desktop navigation submenu if it
+   * does not contain the focused element.
+   *
+   * @param {Event} e
+   *   The event object.
+   */
+  function handleBlur(e) {
+    if (!Drupal.olivero.isDesktopNav()) return;
+
+    setTimeout(() => {
+      const menuParentItem = e.target.closest(
+        '[data-drupal-selector="primary-nav-menu-item-has-children"]',
+      );
+      if (!menuParentItem.contains(document.activeElement)) {
+        toggleSubNav(menuParentItem, false);
+      }
+    }, 200);
+  }
+
+  // Add event listeners onto each sub navigation parent and button.
+  secondLevelNavMenus.forEach((el) => {
+    const button = el.querySelector(
+      '[data-drupal-selector="primary-nav-submenu-toggle-button"]',
+    );
+
+    button.removeAttribute('aria-hidden');
+    button.removeAttribute('tabindex');
+
+    // If touch event, prevent mouseover event from triggering the submenu.
+    el.addEventListener(
+      'touchstart',
+      () => {
+        el.classList.add('is-touch-event');
+      },
+      { passive: true },
+    );
+
+    el.addEventListener('mouseover', () => {
+      if (isDesktopNav() && !el.classList.contains('is-touch-event')) {
+        el.classList.add('is-active-mouseover-event');
+        toggleSubNav(el, true);
+
+        // Timeout is added to ensure that users of assistive devices (such as
+        // mouse grid tools) do not simultaneously trigger both the mouseover
+        // and click events. When these events are triggered together, the
+        // submenu to appear to not open.
+        setTimeout(() => {
+          el.classList.remove('is-active-mouseover-event');
+        }, 500);
+      }
+    });
+
+    button.addEventListener('click', () => {
+      if (!el.classList.contains('is-active-mouseover-event')) {
+        toggleSubNav(el);
+      }
+    });
+
+    el.addEventListener('mouseout', () => {
+      if (
+        isDesktopNav() &&
+        !document.activeElement.matches(
+          '[aria-expanded="true"], .is-active-menu-parent *',
+        )
+      ) {
+        toggleSubNav(el, false);
+      }
+    });
+
+    el.addEventListener('blur', handleBlur, true);
+  });
+
+  /**
+   * Close all second level sub navigation menus.
+   */
+  function closeAllSubNav() {
+    secondLevelNavMenus.forEach((el) => {
+      // Return focus to the toggle button if the submenu contains focus.
+      if (el.contains(document.activeElement)) {
+        el.querySelector(
+          '[data-drupal-selector="primary-nav-submenu-toggle-button"]',
+        ).focus();
+      }
+      toggleSubNav(el, false);
+    });
+  }
+
+  Drupal.olivero.closeAllSubNav = closeAllSubNav;
+
+  /**
+   * Checks if any sub navigation items are currently active.
+   *
+   * @return {boolean}
+   *   If sub navigation is currently open.
+   */
+  function areAnySubNavsOpen() {
+    let subNavsAreOpen = false;
+
+    secondLevelNavMenus.forEach((el) => {
+      const button = el.querySelector(
+        '[data-drupal-selector="primary-nav-submenu-toggle-button"]',
+      );
+      const state = button.getAttribute('aria-expanded') === 'true';
+
+      if (state) {
+        subNavsAreOpen = true;
+      }
+    });
+
+    return subNavsAreOpen;
+  }
+
+  Drupal.olivero.areAnySubNavsOpen = areAnySubNavsOpen;
+
+  // Ensure that desktop submenus close when escape key is pressed.
+  document.addEventListener('keyup', (e) => {
+    if (e.key === 'Escape') {
+      if (isDesktopNav()) closeAllSubNav();
+    }
+  });
+
+  // If user taps outside of menu, close all menus.
+  document.addEventListener(
+    'touchstart',
+    (e) => {
+      if (
+        areAnySubNavsOpen() &&
+        !e.target.matches(
+          '[data-drupal-selector="header-nav"], [data-drupal-selector="header-nav"] *',
+        )
+      ) {
+        closeAllSubNav();
+      }
+    },
+    { passive: true },
+  );
+})(Drupal);
+;
+/**
+ * @file
+ * This script watches the desktop version of the primary navigation. If it
+ * wraps to two lines, it will automatically transition to a mobile navigation
+ * and remember where it wrapped so it can transition back.
+ */
+((Drupal, once) => {
+  /**
+   * Handles the transition from mobile navigation to desktop navigation.
+   *
+   * @param {Element} navWrapper - The primary navigation's top-level <ul> element.
+   * @param {Element} navItem - The first item within the primary navigation.
+   */
+  function transitionToDesktopNavigation(navWrapper, navItem) {
+    document.body.classList.remove('is-always-mobile-nav');
+
+    // Double check to see if the navigation is wrapping, and if so, re-enable
+    // mobile navigation. This solves an edge cases where if the amount of
+    // navigation items always causes the primary navigation to wrap, and the
+    // page is loaded at a narrower viewport and then widened, the mobile nav
+    // may not be enabled.
+    if (navWrapper.clientHeight > navItem.clientHeight) {
+      document.body.classList.add('is-always-mobile-nav');
+    }
+  }
+
+  /**
+   * Callback from Resize Observer. This checks if the primary navigation is
+   * wrapping, and if so, transitions to the mobile navigation.
+   *
+   * @param {ResizeObserverEntry} entries - Object passed from ResizeObserver.
+   */
+  function checkIfDesktopNavigationWraps(entries) {
+    const navItem = document.querySelector('.primary-nav__menu-item');
+
+    if (
+      Drupal.olivero.isDesktopNav() &&
+      entries[0].contentRect.height > navItem.clientHeight
+    ) {
+      const navMediaQuery = window.matchMedia(
+        `(max-width: ${window.innerWidth + 15}px)`, // 5px adds a small buffer before switching back.
+      );
+      document.body.classList.add('is-always-mobile-nav');
+
+      // In the event that the viewport was resized, we remember the viewport
+      // width with a one-time event listener ,so we can attempt to transition
+      // from mobile navigation to desktop navigation.
+      navMediaQuery.addEventListener(
+        'change',
+        () => {
+          transitionToDesktopNavigation(entries[0].target, navItem);
+        },
+        { once: true },
+      );
+    }
+  }
+
+  /**
+   * Set up Resize Observer to listen for changes to the size of the primary
+   * navigation.
+   *
+   * @param {Element} primaryNav - The primary navigation's top-level <ul> element.
+   */
+  function init(primaryNav) {
+    const resizeObserver = new ResizeObserver(checkIfDesktopNavigationWraps);
+    resizeObserver.observe(primaryNav);
+  }
+
+  /**
+   * Initialize the automatic navigation transition.
+   *
+   * @type {Drupal~behavior}
+   *
+   * @prop {Drupal~behaviorAttach} attach
+   *   Attach context and settings for navigation.
+   */
+  Drupal.behaviors.automaticMobileNav = {
+    attach(context) {
+      once(
+        'olivero-automatic-mobile-nav',
+        '[data-drupal-selector="primary-nav-menu--level-1"]',
+        context,
+      ).forEach(init);
+    },
+  };
+})(Drupal, once);
+;
+/**
+ * @file
+ * JavaScript behaviors for unsaved webforms.
+ */
+
+(function ($, Drupal, once) {
+
+  'use strict';
+
+  var unsaved = false;
+
+  /**
+   * Unsaved changes.
+   *
+   * @type {Drupal~behavior}
+   *
+   * @prop {Drupal~behaviorAttach} attach
+   *   Attaches the behavior for unsaved changes.
+   */
+  Drupal.behaviors.webformUnsaved = {
+    clear: function () {
+      // Allow Ajax refresh/redirect to clear unsaved flag.
+      // @see Drupal.AjaxCommands.prototype.webformRefresh
+      unsaved = false;
+    },
+    get: function () {
+      // Get the current unsaved flag state.
+      return unsaved;
+    },
+    set: function (value) {
+      // Set the current unsaved flag state.
+      unsaved = value;
+    },
+    attach: function (context) {
+      // Look for the 'data-webform-unsaved' attribute which indicates that
+      // a multi-step webform has unsaved data.
+      // @see \Drupal\webform\WebformSubmissionForm::buildForm
+      if ($(once('data-webform-unsaved', '.js-webform-unsaved[data-webform-unsaved]')).length) {
+        unsaved = true;
+      }
+      else {
+        $(once('webform-unsaved', $('.js-webform-unsaved :input:not(:button, :submit, :reset, [type="hidden"])'))).on('change keypress', function (event, param1) {
+          // Ignore events triggered when #states API is changed,
+          // which passes 'webform.states' as param1.
+          // @see webform.states.js ::triggerEventHandlers().
+          if (param1 !== 'webform.states') {
+            unsaved = true;
+          }
+        });
+      }
+
+      $(once('webform-unsaved', $('.js-webform-unsaved button, .js-webform-unsaved input[type="submit"]', context))).not('[data-webform-unsaved-ignore]')
+        .on('click', function (event) {
+          // For reset button we must confirm unsaved changes before the
+          // before unload event handler.
+          if ($(this).hasClass('webform-button--reset') && unsaved) {
+            if (!window.confirm(Drupal.t('Changes you made may not be saved.') + '\n\n' + Drupal.t('Press OK to leave this page or Cancel to stay.'))) {
+              return false;
+            }
+          }
+
+          unsaved = false;
+        });
+
+      // Add submit handler to form.beforeSend.
+      // Update Drupal.Ajax.prototype.beforeSend only once.
+      if (typeof Drupal.Ajax !== 'undefined' && typeof Drupal.Ajax.prototype.beforeSubmitWebformUnsavedOriginal === 'undefined') {
+        Drupal.Ajax.prototype.beforeSubmitWebformUnsavedOriginal = Drupal.Ajax.prototype.beforeSubmit;
+        Drupal.Ajax.prototype.beforeSubmit = function (form_values, element_settings, options) {
+          unsaved = false;
+          return this.beforeSubmitWebformUnsavedOriginal.apply(this, arguments);
+        };
+      }
+
+      // Track all CKEditor change events.
+      // @see https://ckeditor.com/old/forums/Support/CKEditor-jQuery-change-event
+      if (window.CKEDITOR && !CKEDITOR.webformUnsaved) {
+        CKEDITOR.webformUnsaved = true;
+        CKEDITOR.on('instanceCreated', function (event) {
+          event.editor.on('change', function (evt) {
+            unsaved = true;
+          });
+        });
+      }
+    }
+  };
+
+  $(window).on('beforeunload', function () {
+    if (unsaved) {
+      return true;
+    }
+  });
+
+  /**
+   * An experimental shim to partially emulate onBeforeUnload on iOS.
+   * Part of https://github.com/codedance/jquery.AreYouSure/
+   *
+   * Copyright (c) 2012-2014, Chris Dance and PaperCut Software http://www.papercut.com/
+   * Dual licensed under the MIT or GPL Version 2 licenses.
+   * http://jquery.org/license
+   *
+   * Author:  chris.dance@papercut.com
+   * Date:    19th May 2014
+   */
+  $(function () {
+    // @see https://stackoverflow.com/questions/58019463/how-to-detect-device-name-in-safari-on-ios-13-while-it-doesnt-show-the-correct
+    var isIOSorOpera = navigator.userAgent.toLowerCase().match(/iphone|ipad|ipod|opera/)
+      || navigator.platform.toLowerCase().match(/iphone|ipad|ipod/)
+      || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (!isIOSorOpera) {
+      return;
+    }
+
+    $('a:not(.use-ajax)').bind('click', function (evt) {
+      var a = $(evt.target).closest('a');
+      var href = a.attr('href');
+      if (typeof href !== 'undefined' && !(href.match(/^#/) || href.trim() === '')) {
+        if ($(window).triggerHandler('beforeunload')) {
+          if (!window.confirm(Drupal.t('Changes you made may not be saved.') + '\n\n' + Drupal.t('Press OK to leave this page or Cancel to stay.'))) {
+            return false;
+          }
+        }
+        var target = a.attr('target');
+        if (target) {
+          window.open(href, target);
+        }
+        else {
+          window.location.href = href;
+        }
+        return false;
+      }
+    });
+  });
+
+})(jQuery, Drupal, once);
+;
+/**
+ * @file
+ * JavaScript behaviors for webform scroll top.
+ */
+
+(function ($, Drupal) {
+
+  'use strict';
+
+  Drupal.webform = Drupal.webform || {};
+  // Allow scrollTopOffset to be custom defined or based on whether there is a
+  // floating toolbar.
+  Drupal.webform.scrollTopOffset = Drupal.webform.scrollTopOffset || ($('#toolbar-administration').length ? 140 : 10);
+
+  /**
+   * Scroll to top ajax command.
+   *
+   * @param {Element} element
+   *   The element to scroll to.
+   * @param {string} target
+   *   Scroll to target. (form or page)
+   */
+  Drupal.webformScrollTop = function (element, target) {
+    if (!target) {
+      return;
+    }
+
+    var $element = $(element);
+
+    // Scroll to the top of the view. This will allow users
+    // to browse newly loaded content after e.g. clicking a pager
+    // link.
+    var offset = $element.offset();
+    // We can't guarantee that the scrollable object should be
+    // the body, as the view could be embedded in something
+    // more complex such as a modal popup. Recurse up the DOM
+    // and scroll the first element that has a non-zero top.
+    var $scrollTarget = $element;
+    while ($scrollTarget.scrollTop() === 0 && $($scrollTarget).parent()) {
+      $scrollTarget = $scrollTarget.parent();
+    }
+
+    if (target === 'page' && $scrollTarget.length && $scrollTarget[0].tagName === 'HTML') {
+      // Scroll to top when scroll target is the entire page.
+      // @see https://stackoverflow.com/questions/123999/how-to-tell-if-a-dom-element-is-visible-in-the-current-viewport
+      var rect = $($scrollTarget)[0].getBoundingClientRect();
+      if (!(rect.top >= 0 && rect.left >= 0 && rect.bottom <= $(window).height() && rect.right <= $(window).width())) {
+        $scrollTarget.animate({scrollTop: 0}, 500);
+      }
+    }
+    else {
+      // Only scroll upward.
+      if (offset.top - Drupal.webform.scrollTopOffset < $scrollTarget.scrollTop()) {
+        $scrollTarget.animate({scrollTop: (offset.top - Drupal.webform.scrollTopOffset)}, 500);
+      }
+    }
+  };
+
+  /**
+   * Scroll element into view.
+   *
+   * @param {jQuery} $element
+   *   An element.
+   */
+  Drupal.webformScrolledIntoView = function ($element) {
+    if (!Drupal.webformIsScrolledIntoView($element)) {
+      $('html, body').animate({scrollTop: $element.offset().top - Drupal.webform.scrollTopOffset}, 500);
+    }
+  };
+
+  /**
+   * Determine if element is visible in the viewport.
+   *
+   * @param {Element} element
+   *   An element.
+   *
+   * @return {boolean}
+   *   TRUE if element is visible in the viewport.
+   *
+   * @see https://stackoverflow.com/questions/487073/check-if-element-is-visible-after-scrolling
+   */
+  Drupal.webformIsScrolledIntoView = function (element) {
+    var docViewTop = $(window).scrollTop();
+    var docViewBottom = docViewTop + $(window).height();
+
+    var elemTop = $(element).offset().top;
+    var elemBottom = elemTop + $(element).height();
+
+    return ((elemBottom <= docViewBottom) && (elemTop >= docViewTop));
+  };
+
+})(jQuery, Drupal);
+;
+/**
+ * @file
+ * JavaScript behaviors for webform cards.
+ */
+
+(function ($, Drupal) {
+
+  'use strict';
+
+  Drupal.webform = Drupal.webform || {};
+  Drupal.webform.cards = Drupal.webform.cards || {};
+  // Autoforward (defaults to 1/4 second delay).
+  Drupal.webform.cards.autoForwardDelay = Drupal.webform.cards.autoForwardDelay || 250;
+
+  /**
+   * Initialize webform cards.
+   *
+   * @type {Drupal~behavior}
+   */
+  Drupal.behaviors.webformCards = {
+    attach: function (context) {
+      // Determine if the form is the context or it is within the context.
+      var $forms = $(context).is('form.webform-submission-form')
+        ? $(context)
+        : $('form.webform-submission-form', context);
+
+      $(once('webform-cards', $forms)).each(function () {
+        // Form.
+        var $form = $(this);
+
+        // Options from data-* attributes.
+        var options = {
+          progressStates: $form[0].hasAttribute('data-progress-states'),
+          progressLink: $form[0].hasAttribute('data-progress-link'),
+          autoForward: $form[0].hasAttribute('data-auto-forward'),
+          autoForwardHideNextButton: $form[0].hasAttribute('data-auto-forward-hide-next-button'),
+          keyboard: $form[0].hasAttribute('data-keyboard'),
+          previewLink: $form[0].hasAttribute('data-preview-link'),
+          confirmation: $form[0].hasAttribute('data-confirmation'),
+          track: $form.data('track'),
+          toggle: $form[0].hasAttribute('data-toggle'),
+          toggleHideLabel: $form.data('toggle-hide-label'),
+          toggleShowLabel: $form.data('toggle-show-label'),
+          ajaxEffect: $form.data('ajax-effect'),
+          ajaxSpeed: $form.data('ajax-speed'),
+          ajaxScrollTop: $form.data('ajax-scroll-top')
+        };
+
+        var currentPage = $form.data('current-page');
+
+        // Progress.
+        var $progress = $('.webform-progress');
+
+        // Current card.
+        var $currentCardInput = $form.find(':input[name="current_card"]');
+
+        // Cards.
+        var $allCards = $form.find('.webform-card');
+
+        // Actions and buttons.
+        var $formActions = $form.find('.form-actions').show();
+        var $previewButton = $formActions.find('.webform-button--preview');
+        var $submitButton = $formActions.find('.webform-button--submit');
+        var $previousButton = $formActions.find('.webform-button--previous');
+        var $nextButton = $formActions.find('.webform-button--next');
+
+        // Preview.
+        if (!$allCards.length) {
+          setPreview();
+          return;
+        }
+
+        // Display show/hide all cards link.
+        if (options.toggle) {
+          setToggle();
+        }
+
+        // Server-side validation errors.
+        // @see \Drupal\Core\Render\Element\RenderElement::setAttributes
+        var $invalidCards = $allCards.filter(':has(.form-item--error-message)');
+        if ($invalidCards.length) {
+          // Hide progress.
+          $form.find('.webform-progress').hide();
+          // Hide next and previous and only show the submit button.
+          $previousButton.hide();
+          $nextButton.hide();
+          // Show invalid cards and shake'em.
+          $invalidCards.addClass('webform-card--error');
+          shake($invalidCards);
+          return;
+        }
+
+        // Previous and next buttons.
+        $previousButton.data('default-label', $previousButton.val());
+        $nextButton.data('default-label', $nextButton.val());
+        $previousButton.on('click', previousButtonClickEventHandler).show();
+        $nextButton.on('click', nextButtonClickEventHandler).show();
+
+        // Auto-forward.
+        if (options.autoForward) {
+          // Auto-forward on enter.
+          $form.find('input')
+            .not(':button, :submit, :reset, :image, :file')
+            .on('keydown', function (event) {
+              if (event.which === 13) {
+                autoForwardEventHandler(event);
+                // Disable auto submit.
+                // @see Drupal.behaviors.webformDisableAutoSubmit
+                event.preventDefault();
+                return false;
+              }
+            });
+
+          // Auto-forward on change.
+          $form.find('select[data-images]:not([multiple]), input[type="range"].form-webform-rating')
+            .on('change', autoForwardEventHandler);
+
+          // Auto-forward radios with label.
+          $form.find('input:radio, label[for]')
+            .on('mouseup', function (event) {
+              var $radio = (event.target.tagName === 'LABEL')
+                ? $('#' + $(event.target).attr('for'))
+                : $(this);
+              if ($radio.is(':radio') && $radio.val() !== '_other_') {
+                setTimeout(function () {
+                  autoForwardEventHandler(event);
+                });
+              }
+            });
+        }
+
+        // Keyboard navigation.
+        if (options.keyboard) {
+          $('body').on('keydown', function (event) {
+            // Only track left and right keys.
+            if (event.which !== 37 && event.which !== 39) {
+              return;
+            }
+
+            // If input and the cursor is not at the end of the input, do not
+            // trigger navigation.
+            // @see https://stackoverflow.com/questions/21177489/selectionstart-selectionend-on-input-type-number-no-longer-allowed-in-chrome
+            if (typeof event.target.value !== 'undefined'
+              && typeof event.target.selectionStart !== 'undefined'
+              && event.target.selectionStart !== null) {
+              if (event.target.value.length !== event.target.selectionStart) {
+                return;
+              }
+              // Ignore the left keydown event if the input has a value.
+              if (event.target.value.length && event.which === 37) {
+                return;
+              }
+            }
+
+            // If input[type="radio"] ignore left/right keys which are used to
+            // navigate between radio buttons.
+            if (event.target.tagName === 'INPUT' && event.target.type === 'radio') {
+              return;
+            }
+
+            switch (event.which) {
+              // Left key triggers the previous button.
+              case 37:
+                setTimeout(function () {$previousButton.trigger('click');}, Drupal.webform.cards.autoForwardDelay);
+                break;
+
+              // Right key triggers the next button.
+              case 39:
+                setTimeout(function () {$nextButton.trigger('click');}, Drupal.webform.cards.autoForwardDelay);
+                break;
+            }
+          });
+        }
+
+        // Track when cards are hidden/shown via #states conditional logic.
+        if (options.progressStates) {
+          $(document).on('state:visible state:visible-slide', function stateVisibleEventHandler(e) {
+            if ($(e.target).hasClass('webform-card') && $.contains($form[0], e.target)) {
+              trackProgress();
+              trackActions();
+            }
+          });
+        }
+
+        initialize();
+
+        /* ****************************************************************** */
+        // Private functions.
+        /* ****************************************************************** */
+
+        /**
+         * Initialize the active card.
+         */
+        function initialize() {
+          var currentCard = $currentCardInput.val();
+          var $activeCard = currentCard ? $allCards.filter('[data-webform-key="' + currentCard + '"]') : [];
+          if (!$activeCard.length) {
+            $activeCard = $allCards.first();
+          }
+          setActiveCard($activeCard, true);
+        }
+
+        /**
+         * Set the active card.
+         *
+         * @param {jQuery} $activeCard
+         *   An jQuery object containing the active card.
+         * @param {boolean} initialize
+         *   Are cards being initialize.
+         *   If TRUE, no transition or scrolling effects will be triggered.
+         */
+        function setActiveCard($activeCard, initialize) {
+          if (!$activeCard.length) {
+            return;
+          }
+
+          // Track the previous active card.
+          var $prevCard = $allCards.filter('.webform-card--active');
+
+          // Unset the previous active card and set the active card.
+          $prevCard.removeClass('webform-card--active');
+          $activeCard.addClass('webform-card--active');
+
+          // Trigger card change event.
+          $form.trigger('webform_cards:change', [$activeCard]);
+
+          // Allow card change event to reset the active card, this allows for
+          // card change event handler to apply custom validation
+          // and conditional logic.
+          $activeCard = $allCards.filter('.webform-card--active');
+          if ($activeCard.get(0) === $prevCard.get(0)) {
+            initialize = true;
+          }
+
+          // Show the active card.
+          if (!initialize) {
+            // Show the active card.
+            applyAjaxEffect($activeCard);
+
+            // Scroll to the top of the page or form.
+            Drupal.webformScrollTop($activeCard, options.ajaxScrollTop);
+          }
+
+          // Focus the active card's first visible input.
+          autofocus($activeCard);
+
+          // Set current card.
+          $currentCardInput.val($activeCard.data('webform-key'));
+          $form.attr('data-webform-current-card', $activeCard.data('webform-key'));
+
+          // Track the current page in a form data attribute and the URL.
+          trackCurrentPage($activeCard);
+
+          // Track progress.
+          trackProgress();
+
+          // Track actions.
+          trackActions();
+        }
+
+        /**
+         * Track the current page in a form data attribute and the URL.
+         *
+         * @param {jQuery} $activeCard
+         *   An jQuery object containing the active card.
+         *
+         * @see \Drupal\webform\WebformSubmissionForm::form
+         * @see Drupal.behaviors.webformWizardTrackPage
+         */
+        function trackCurrentPage($activeCard) {
+          if (!options.track) {
+            return;
+          }
+
+          var page = (options.track === 'index')
+            ? ($allCards.index($activeCard) + 1)
+            : $activeCard.data('webform-key');
+
+          // Set form data attribute.
+          $form.data('webform-wizard-current-page', page);
+
+          // Set URL
+          var url = window.location.toString();
+          var regex = /([?&])page=[^?&]+/;
+          if (url.match(regex)) {
+            url = url.replace(regex, '$1page=' + page);
+          }
+          else {
+            url = url + (url.indexOf('?') !== -1 ? '&page=' : '?page=') + page;
+          }
+          window.history.replaceState(null, null, url);
+        }
+
+        /**
+         * Track actions
+         */
+        function trackActions() {
+          var $activeCard = $allCards.filter('.webform-card--active');
+
+          // Set the previous and next labels.
+          setButtonLabel($previousButton, $activeCard.data('prev-button-label') || $previousButton.data('default-label'));
+          setButtonLabel($nextButton, $activeCard.data('next-button-label') || $nextButton.data('default-label'));
+
+          // Show/hide the previous button.
+          var hasPrevCard = !!$activeCard.prevAll('.webform-card:not([style*="display: none"])').length;
+          $previousButton.toggle(hasPrevCard);
+
+          // Hide/show the next button and submit buttons.
+          var hasNextCard = !!$activeCard.nextAll('.webform-card:not([style*="display: none"])').length;
+          $previewButton.toggle(!hasNextCard);
+          $submitButton.toggle(!hasNextCard);
+          $nextButton.toggle(hasNextCard);
+
+          // Hide the next button when auto-forwarding.
+          if (hideAutoForwardNextButton()) {
+            $nextButton.hide();
+          }
+        }
+
+        /**
+         * Track progress.
+         *
+         * @see webform/templates/webform-progress.html.twig
+         * @see webform/templates/webform-progress-tracker.html.twig
+         */
+        function trackProgress() {
+          // Hide/show cards and update steps.
+          var cards = getCardsProgressSteps();
+          for (var i = 0; i < cards.length; i++) {
+            var card = cards[i];
+            var cardAttributeName = '[data-webform-' + card.type + '="' + card.key + '"]';
+
+            var $cardStep = $progress.find(cardAttributeName);
+
+            // Set card and page step.
+            $cardStep.find('[data-webform-progress-step]').attr('data-text', card.step);
+            if (card.type === 'page') {
+              continue;
+            }
+
+            // Hide/show card step.
+            $cardStep.toggle(!card.hidden);
+
+            // Set .is-active and .is-complete classes.
+            $cardStep.toggleClass('is-active', card.active);
+            $cardStep.toggleClass('is-complete', !card.active && card.complete);
+
+            // Set 'Current' and 'Complete' state.
+            var $cardState = $cardStep.find('[data-webform-progress-state]');
+            $cardState.toggle(card.active || card.complete);
+            if (card.active) {
+              $cardState.html(Drupal.t('Current'));
+            }
+            if (card.complete) {
+              $cardState.html(Drupal.t('Complete'));
+            }
+
+            // Link card step.
+            if (options.progressLink) {
+              var $links = $cardStep.find('[data-webform-progress-link]');
+              $links.data('webform-key', card.key);
+              if (card.complete) {
+                if ($links.attr('role') !== 'link') {
+                  $links
+                    .attr({'role': 'link', 'title': card.title, 'aria-label': card.title, 'tabindex': '0'})
+                    .on('click', function () {
+                      var $card = $allCards.filter('[data-webform-key="' + $(this).data('webform-key') + '"]');
+                      setActiveCard($card);
+                    })
+                    .on('keydown', function (event) {
+                      if (event.which === 13) {
+                        var $card = $allCards.filter('[data-webform-key="' + $(this).data('webform-key') + '"]');
+                        setActiveCard($card);
+                      }
+                    });
+                }
+              }
+              else if ($links.attr('role') === 'link') {
+                $links.removeAttr('role title aria-label tabindex')
+                  .off('click keydown');
+              }
+            }
+          }
+
+          // Set properties.
+          var properties = getCardsProgressProperties();
+          for (var property in properties) {
+            if (properties.hasOwnProperty(property)) {
+              var attribute = '[data-webform-progress-' + property + ']';
+              var value = properties[property];
+              $progress.find(attribute).html(value);
+            }
+          }
+
+          // Set <progress> tag [value] and [max] attributes.
+          $progress.find('progress').attr({
+            value: properties.index,
+            max: properties.total
+          });
+        }
+
+        /**
+         * Set show/hide all cards toggle button.
+         */
+        function setToggle() {
+          var $toggle = $('<button type="button" class="webform-cards-toggle"></button>')
+            .html(options.toggleShowLabel)
+            .on('click', toggleEventHandler)
+            .wrap('<div class="webform-cards-toggle-wrapper"></div>')
+            .parent();
+          $allCards.eq(0).before($toggle);
+        }
+
+        /**
+         * Set preview.
+         */
+        function setPreview() {
+          if (currentPage !== 'webform_preview' || !$form.find('.webform-preview').length) {
+            return;
+          }
+
+          if (options.keyboard) {
+            $('body').on('keydown', function (event) {
+              switch (event.which) {
+                case 37: // left.
+                  setTimeout(function () {$previousButton.trigger('click');}, Drupal.webform.cards.autoForwardDelay);
+                  break;
+
+                case 39: // right
+                  setTimeout(function () {$submitButton.trigger('click');}, Drupal.webform.cards.autoForwardDelay);
+                  break;
+              }
+            });
+          }
+          setPreviewLinks();
+        }
+
+        /**
+         * Set links to previous pages/cards in preview.
+         */
+        function setPreviewLinks() {
+          var $button = $form.find('.js-webform-wizard-pages-link[data-webform-page="webform_start"]');
+
+          // Link to previous pages in progress steps (aka bar).
+          if (options.progressLink) {
+            $progress.find('[data-webform-card]').each(function () {
+              var $step = $(this);
+              var card = $step.data('webform-card');
+              var title = $step.attr('title');
+              $step
+                .find('[data-webform-progress-link]')
+                .attr({'role': 'link', 'title': title, 'aria-label': title, 'tabindex': '0'})
+                .on('click', function () {
+                  // Set current card.
+                  $currentCardInput.val(card);
+                  // Click button to return to the 'webform_start' page.
+                  $button.trigger('click');
+                })
+                .on('keydown', function (event) {
+                  if (event.which === 13) {
+                    $(this).trigger('click');
+                  }
+                });
+            });
+          }
+
+          // Link to previous pages in preview.
+          if (options.previewLink) {
+            $form
+              .find('.webform-card-edit[data-webform-card]')
+              .each(function appendEditButton() {
+                var $card = $(this);
+
+                var card = $card.data('webform-card');
+                var title = $card.attr('title');
+
+                var $cardButton = $button.clone();
+                $cardButton
+                  .removeAttr('data-webform-page data-msg-required')
+                  .attr('id', $cardButton.attr('id') + '-' + card)
+                  .attr('name', $cardButton.attr('name') + '-' + card)
+                  .attr('data-drupal-selector', $cardButton.attr('data-drupal-selector') + '-' + card)
+                  .attr('title', Drupal.t("Edit '@title'", {'@title': title}).toString())
+                  .on('click', function () {
+                    // Set current card.
+                    $currentCardInput.val(card);
+                    // Click button to return to the 'webform_start' page.
+                    $button.trigger('click');
+                    return false;
+                  });
+                $card.append($cardButton).show();
+              });
+          }
+        }
+
+        /**
+         * Get cards progress properties.
+         *
+         * Properties include index, total, percentage, and summary.
+         *
+         * @return {{summary: string, total: number, percentage: string,
+         *   index: *}} Cards progress properties.
+         */
+        function getCardsProgressProperties() {
+          var $activeCard = $allCards.filter('.webform-card--active');
+
+          var $visibleCards = $allCards.filter(':not([style*="display: none"])');
+
+          var index = (currentPage === 'webform_preview')
+            ? $visibleCards.length + 1
+            : $visibleCards.index($activeCard);
+
+          var total = $visibleCards.length
+            + ($previewButton.length ? 1 : 0)
+            + (options.confirmation ? 1 : 0);
+
+          var percentage = Math.round((index / (total - 1)) * 100);
+
+          var summary = Drupal.t(
+            '@index of @total',
+            {'@index': index + 1, '@total': total}
+          );
+
+          return {
+            index: index + 1,
+            total: total,
+            percentage: percentage + '%',
+            summary: summary
+          };
+        }
+
+        /**
+         * Get cards as progress steps.
+         *
+         * @return {[]}
+         *   Cards as progress steps.
+         */
+        function getCardsProgressSteps() {
+          var $activeCard = $allCards.filter('.webform-card--active');
+          var activeKey = $activeCard.data('webform-key');
+
+          var cards = [];
+
+          // Append cards.
+          var step = 0;
+          var isComplete = true;
+          $allCards.each(function () {
+            var $card = $(this);
+            var key = $card.data('webform-key');
+            var title = $card.data('title');
+
+            // Set active and complete classes.
+            var isActive = (activeKey === key);
+            if (isActive) {
+              isComplete = false;
+            }
+
+            // Hide/show progress based on conditional logic.
+            var isHidden = false;
+            if (options.progressStates) {
+              isHidden = $card.is('[style*="display: none"]');
+              if (!isHidden) {
+                step++;
+              }
+            }
+            else {
+              step++;
+            }
+
+            cards.push({
+              type: 'card',
+              key: key,
+              title: title,
+              step: isHidden ? null : step,
+              hidden: isHidden,
+              active: isActive,
+              complete: isComplete
+            });
+          });
+
+          // Append preview and confirmation pages.
+          $(['webform_preview', 'webform_confirmation']).each(function () {
+            var $progressStep = $form.find('[data-webform-progress-steps] [data-webform-page="' + this + '"]');
+            if ($progressStep.length) {
+              step++;
+              cards.push({
+                type: 'page',
+                key: this,
+                step: step
+              });
+            }
+          });
+          return cards;
+        }
+
+        /**
+         * Apply Ajax effect to elements.
+         *
+         * @param {jQuery} $elements
+         *   An jQuery object containing elements to be displayed.
+         */
+        function applyAjaxEffect($elements) {
+          switch (options.ajaxEffect) {
+            case 'fade':
+              $elements.hide().fadeIn(options.ajaxSpeed);
+              break;
+
+            case 'slide':
+              $elements.hide().slideDown(options.ajaxSpeed);
+              break;
+          }
+        }
+
+        /* ****************************************************************** */
+        // Event handlers.
+        /* ****************************************************************** */
+
+        /**
+         * Toggle event handler.
+         *
+         * @param {jQuery.Event} event
+         *   The event triggered.
+         */
+        function toggleEventHandler(event) {
+          if ($form.hasClass('webform-cards-toggle-show')) {
+            $form.removeClass('webform-cards-toggle-show');
+            $(this)
+              .attr('title', options.toggleShowLabel)
+              .html(options.toggleShowLabel);
+            var $activeCard = $allCards.filter('.webform-card--active');
+            setActiveCard($activeCard);
+          }
+          else {
+            $form.addClass('webform-cards-toggle-show');
+            $(this)
+              .attr('title', options.toggleHideLabel)
+              .html(options.toggleHideLabel);
+            var $visibleCards = $allCards.filter(':not([style*="display: none"])');
+            applyAjaxEffect($visibleCards);
+            $nextButton.hide();
+            $previousButton.hide();
+            $previewButton.show();
+            $submitButton.show();
+
+            // Trigger card change event with no active card.
+            $form.trigger('webform_cards:change');
+          }
+        }
+
+        /**
+         * Previous button event handler.
+         *
+         * @param {jQuery.Event} event
+         *   The event triggered.
+         */
+        function previousButtonClickEventHandler(event) {
+          // Get previous visible card (not "display: none").
+          var $previousCard = $allCards.filter('.webform-card--active')
+            .prevAll('.webform-card:not([style*="display: none"])')
+            .first();
+          setActiveCard($previousCard);
+          // Prevent the button's default behavior.
+          event.preventDefault();
+        }
+
+        /**
+         * Next button event handler.
+         *
+         * @param {jQuery.Event} event
+         *   The event triggered.
+         */
+        function nextButtonClickEventHandler(event) {
+          var validator = $form.validate(drupalSettings.cvJqueryValidateOptions);
+          if (!$form.valid()) {
+            // Focus first invalid input.
+            validator.focusInvalid();
+            // Shake the invalid card.
+            var $activeCard = $allCards.filter('.webform-card--active');
+            shake($activeCard);
+          }
+          else {
+            // Get next visible card (not "display: none").
+            var $nextCard = $allCards.filter('.webform-card--active')
+              .nextAll('.webform-card:not([style*="display: none"])')
+              .first();
+            if ($nextCard.length) {
+              setActiveCard($nextCard);
+            }
+            else if ($previewButton.length) {
+              $previewButton.trigger('click');
+            }
+            else {
+              $submitButton.trigger('click');
+            }
+          }
+          // Prevent the button's default behavior.
+          event.preventDefault();
+        }
+
+        /**
+         * Auto forward event handler.
+         *
+         * @param {jQuery.Event} event
+         *   The event triggered.
+         */
+        function autoForwardEventHandler(event) {
+          if ($form.hasClass('webform-cards-toggle-show')) {
+            return;
+          }
+
+          var $activeCard = $allCards.filter('.webform-card--active');
+          var $allInputs = $activeCard.find('input:visible, select:visible, textarea:visible');
+          var $autoForwardInputs = $activeCard.find('input:visible, select:visible');
+          if (!$autoForwardInputs.length || $allInputs.length !== $autoForwardInputs.length) {
+            return;
+          }
+
+          var inputValues = [];
+          $autoForwardInputs.each(function () {
+            var name = this.name;
+            if (!(name in inputValues)) {
+              inputValues[name] = false;
+            }
+            if (this.type === 'radio' && this.checked) {
+              inputValues[name] = true;
+            }
+            else if (this.type === 'select-one' && this.selectedIndex !== -1) {
+              inputValues[name] = true;
+            }
+            else if (this.type === 'range' && this.value) {
+              inputValues[name] = true;
+            }
+          });
+
+          // Only auto-forward when a single input is visible.
+          if (Object.keys(inputValues).length > 1) {
+            return;
+          }
+
+          var inputHasValue = inputValues.every(function (value) {
+            return value;
+          });
+          if (inputHasValue) {
+            setTimeout(function () {$nextButton.trigger('click');}, Drupal.webform.cards.autoForwardDelay);
+          }
+        }
+
+        /**
+         * Determine if next button is hidden when auto-forwarding
+         *
+         * @return {{boolean}}
+         *   TRUE if next button should be hidden
+         */
+        function hideAutoForwardNextButton() {
+          if (!options.autoForwardHideNextButton) {
+            return false;
+          }
+
+          if ($form.hasClass('webform-cards-toggle-show')) {
+            return false;
+          }
+
+          var $activeCard = $allCards.filter('.webform-card--active');
+          var $allInputs = $activeCard.find('input:visible, select:visible, textarea:visible');
+          var $autoForwardInputs = $activeCard.find('input[type="radio"], select[data-images]:not([multiple]), input[type="range"].form-webform-rating');
+          if (!$autoForwardInputs.length || $allInputs.length !== $autoForwardInputs.length) {
+            return false;
+          }
+
+          var inputValues = [];
+          var name;
+          var type;
+          $autoForwardInputs.each(function () {
+            name = this.name;
+            type = this.type;
+            if (type === 'radio') {
+              inputValues[name] = 'radio';
+            }
+            else if (type === 'select-one') {
+              inputValues[name] = 'select-one';
+            }
+            else if (type === 'range') {
+              inputValues[name] = 'range';
+            }
+          });
+
+          // Only auto-forward when a single input is visible.
+          if (Object.keys(inputValues).length !== 1) {
+            return false;
+          }
+
+          // Determine if the auto-forward input has a value.
+          switch (type) {
+            case 'radio':
+              return $('[name="' + name + '"]:checked').length ? false : true;
+
+            case 'range':
+              return $('[name="' + name + '"]').val() !== '0' ? false : true;
+
+            case 'select-one':
+              return $('[name="' + name + '"]').val() ? false : true;
+          }
+        }
+
+        /**
+         * Auto focus a card's first input, if it has not been entered.
+         *
+         * @param {jQuery} $activeCard
+         *   An jQuery object containing the active card.
+         *
+         */
+        function autofocus($activeCard) {
+          if (!$form.hasClass('js-webform-autofocus')) {
+            return;
+          }
+
+          var $firstInput = $activeCard.find(':input:visible:not([type="submit"])').first();
+          if ($firstInput.length && !inputHasValue($firstInput)) {
+            $firstInput.trigger('focus');
+          }
+        }
+
+        /**
+         * Shake an element.
+         *
+         * @param {jQuery} $element
+         *   A jQuery object containing an element to shake.
+         *
+         * @see https://stackoverflow.com/questions/4399005/implementing-jquerys-shake-effect-with-animate
+         */
+        function shake($element) {
+          var intShakes = 3;
+          var intDistance = 20;
+          var intDuration = 450;
+          $element.css('position', 'relative');
+          for (var x = 1; x <= intShakes; x++) {
+            $element
+              .animate({left: (intDistance * -1)}, ((intDuration / intShakes) / 4))
+              .animate({left: intDistance}, ((intDuration / intShakes) / 2))
+              .animate({left: 0}, ((intDuration / intShakes) / 4));
+          }
+        }
+
+        /**
+         * Determine if an input has been entered.
+         *
+         * @param {jQuery} $input
+         *   An jQuery object containing an :input.
+         *
+         * @return {boolean}
+         *   TRUE if next button should be hidden
+         */
+        function inputHasValue($input) {
+          var type = $input[0].type;
+          var name = $input[0].name;
+          switch (type) {
+            case 'checkbox':
+            case 'radio':
+              return $('[name="' + name + '"]:checked').length ? true : false;
+
+            case 'range':
+              return $('[name="' + name + '"]').val() !== '0' ? true : false;
+
+            case 'select-one':
+            default:
+              return $('[name="' + name + '"]').val() ? true : false;
+          }
+        }
+
+        /**
+         * Set button label value or HTML markup.
+         *
+         * @param {jQuery} $button
+         *   A jQuery object containing a <button> or <input type="submit">.
+         * @param {string} label
+         *   The button's label.
+         */
+        function setButtonLabel($button, label) {
+          if ($button[0].tagName === 'BUTTON') {
+            $button.html(label);
+          }
+          else {
+            $button.val(label);
+          }
+        }
+      });
+
+    }
+  };
+
+})(jQuery, Drupal);
+;

@@ -1,0 +1,11 @@
+name: Encryption
+type: module
+description: Supplies simple encryption and decryption.
+core: 8.x
+core_version_requirement: ^8 || ^9 || ^10
+package: Security
+
+# Information added by Drupal.org packaging script on 2023-11-06
+version: '3.0.0'
+project: 'encryption'
+datestamp: 1699235057
